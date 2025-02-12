@@ -52,6 +52,7 @@ app.get("/sanpham", (req, res) => {
     res.send({ success: true, data: results });
   });
 });
+
 // Fetch product by ID
 app.get("/sanpham/:id", (req, res) => {
   const masp = req.params.id;
@@ -302,7 +303,25 @@ app.get("/taikhoan", (req, res) => {
     res.send({ success: true, data: results });
   });
 });
+app.get("/taikhoanTheoMaNV/:manv", (req, res) => {
+  const { manv } = req.params;
+  const query = "SELECT * FROM taikhoan WHERE manv = ?";
 
+  db.query(query, [manv], (err, results) => {
+    if (err) {
+      console.error("Lỗi khi lấy thông tin tài khoản:", err);
+      return res
+        .status(500)
+        .json({ message: "Có lỗi xảy ra khi lấy thông tin tài khoả." });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ message: "Không tìm thấy khu vực kho." });
+    }
+
+    res.status(200).json(results[0]);
+  });
+});
 app.get("/nhomquyen", (req, res) => {
   const query = "SELECT * FROM nhomquyen WHERE trangthai = 1";
   db.query(query, (err, results) => {
@@ -375,9 +394,37 @@ app.put("/khachhang/:makh", (req, res) => {
     res.status(200).json({ message: "Cập nhật thành công" });
   });
 });
+app.put("/Edittaikhoan/:manv", (req, res) => {
+  const manv = req.params.manv;
+  const { tendangnhap, manhomquyen, trangthai } = req.body;
 
+  const sql = `UPDATE taikhoan SET tendangnhap = ?, manhomquyen = ?, trangthai = ? WHERE manv = ?`;
+
+  db.query(
+    sql,
+    [tendangnhap, manhomquyen, trangthai, manv],
+    (error, results) => {
+      if (error) {
+        console.error("Error updating tài khoản:", error);
+        return res
+          .status(500)
+          .json({ message: "Có lỗi xảy ra khi cập nhật tài khoản", error });
+      }
+
+      if (results.affectedRows === 0) {
+        return res.status(404).json({ message: "Không tìm thấy khách hàng" });
+      }
+
+      // Trả về phản hồi có nội dung xác nhận cập nhật thành công
+      res.status(200).json({ message: "Cập nhật thành công" });
+    }
+  );
+});
 app.post("/addkhachhang", (req, res) => {
   const { tenkhachhang, diachi, sdt } = req.body;
+  if (!tenkhachhang || !sdt || !diachi) {
+    return res.status(400).json({ message: "Thiếu thông tin khách hàng." });
+  }
   const trangthai = 1;
 
   const queryInsert = `INSERT INTO khachhang (tenkhachhang, diachi, sdt) VALUES (?, ?, ?)`;
@@ -618,6 +665,8 @@ app.put(
   "/chinhsuasanphamvaphienban/:masp",
   upload.single("hinhanh"),
   (req, res) => {
+    console.log("Request body:", req.body);
+    console.log("Uploaded file:", req.file);
     const { masp } = req.params;
     const {
       tensp,
@@ -636,15 +685,15 @@ app.put(
       trangthai,
     } = req.body;
     const versions = JSON.parse(req.body.versions || "[]");
-    const hinhanh = req.file ? req.file.filename : "";
+    const hinhanh = req.file ? req.file.filename : null; // Đặt hinhanh là null nếu không có tệp mới
 
     // Update product details
     const productQuery = `
-    UPDATE sanpham 
-    SET tensp = ?, hinhanh = COALESCE(?, hinhanh), xuatxu = ?, chipxuly = ?, dungluongpin = ?, 
-        kichthuocman = ?, hedieuhanh = ?, phienbanhdh = ?, camerasau = ?, cameratruoc = ?, 
-        thoigianbaohanh = ?, thuonghieu = ?, khuvuckho = ?, soluongton = ?, trangthai = ?
-    WHERE masp = ?
+  UPDATE sanpham 
+  SET tensp = ?, hinhanh = COALESCE(?, hinhanh), xuatxu = ?, chipxuly = ?, dungluongpin = ?, 
+      kichthuocman = ?, hedieuhanh = ?, phienbanhdh = ?, camerasau = ?, cameratruoc = ?, 
+      thoigianbaohanh = ?, thuonghieu = ?, khuvuckho = ?, soluongton = ?, trangthai = ?
+  WHERE masp = ?
   `;
     const productValues = [
       tensp,
@@ -674,7 +723,6 @@ app.put(
       // Update versions in phienbansanpham
       const versionQueries = versions.map((version) => {
         const {
-          id,
           rom,
           ram,
           mausac,
@@ -682,13 +730,15 @@ app.put(
           giaxuat,
           soluongton,
           trangthai,
+          maphienbansp, // Sử dụng maphienbansp
         } = version;
+
         return new Promise((resolve, reject) => {
           const versionQuery = `
-          UPDATE phienbansanpham 
-          SET rom = ?, ram = ?, mausac = ?, gianhap = ?, giaxuat = ?, soluongton = ?, trangthai = ? 
-          WHERE masp = ? AND id = ?
-        `;
+        UPDATE phienbansanpham 
+        SET rom = ?, ram = ?, mausac = ?, gianhap = ?, giaxuat = ?, soluongton = ?, trangthai = ? 
+        WHERE masp = ? AND maphienbansp = ?
+      `;
           const versionValues = [
             rom,
             ram,
@@ -698,7 +748,7 @@ app.put(
             soluongton,
             trangthai,
             masp,
-            id,
+            maphienbansp, // Sử dụng maphienbansp
           ];
 
           db.query(versionQuery, versionValues, (err) => {
@@ -726,6 +776,8 @@ app.put(
 );
 
 app.put("/capnhatsanpham/:id", upload.single("hinhanh"), (req, res) => {
+  console.log("Request body:", req.body);
+  console.log("Uploaded file:", req.file);
   const masp = req.params.id;
   const {
     tensp,
@@ -792,8 +844,19 @@ app.put("/capnhatsanpham/:id", upload.single("hinhanh"), (req, res) => {
 // Handle user login
 app.post("/taikhoan", (req, res) => {
   const { tendangnhap, matkhau } = req.body;
-  const query =
-    "SELECT manv, matkhau,manhomquyen FROM taikhoan WHERE tendangnhap = ?";
+  const query = `
+    SELECT 
+      taikhoan.manv, 
+      taikhoan.matkhau, 
+      taikhoan.manhomquyen, 
+      taikhoan.trangthai, 
+      nhomquyen.tennhomquyen -- Giả sử bạn muốn lấy tên nhóm quyền
+    FROM 
+      taikhoan
+    JOIN 
+      nhomquyen ON taikhoan.manhomquyen = nhomquyen.manhomquyen
+    WHERE 
+      taikhoan.tendangnhap = ?`;
 
   db.query(query, [tendangnhap], (err, results) => {
     if (err) {
@@ -807,7 +870,12 @@ app.post("/taikhoan", (req, res) => {
     }
 
     const user = results[0];
-
+    if (user.trangthai === 0) {
+      return res.send({
+        success: false,
+        message: "Tài khoản đã bị vô hiệu hóa",
+      });
+    }
     bcrypt.compare(matkhau, user.matkhau, (err, isMatch) => {
       if (err) {
         return res
@@ -831,6 +899,7 @@ app.post("/taikhoan", (req, res) => {
               manv: user.manv,
               hoten: nhanVienResults[0].hoten,
               manhomquyen: user.manhomquyen,
+              tennhomquyen: user.tennhomquyen,
             });
           } else {
             res.send({
@@ -1015,6 +1084,43 @@ app.delete("/xoakhuvuckho/:id", (req, res) => {
     res.status(200).json({ message: "Xóa khu vực kho thành công!" });
   });
 });
+app.get("/binhquan-mathang", (req, res) => {
+  const query = `
+    SELECT 
+      s.masp, 
+      s.tensp, 
+      SUM(ctpx.soluong) AS tong_soluong,
+      SUM(ctpx.soluong * ctpx.dongia) AS tong_doanhthu,
+      CASE 
+        WHEN SUM(ctpx.soluong) > 0 THEN SUM(ctpx.soluong * ctpx.dongia) / SUM(ctpx.soluong)
+        ELSE 0 
+      END AS gia_binh_quan
+    FROM 
+      sanpham s
+    LEFT JOIN 
+      phienbansanpham pbsp ON s.masp = pbsp.masp
+    LEFT JOIN 
+      ctphieuxuat ctpx ON pbsp.maphienbansp = ctpx.maphienbansp
+    LEFT JOIN 
+      phieuxuat px ON ctpx.maphieuxuat = px.maphieuxuat
+    WHERE 
+      px.thoigian BETWEEN ? AND ?  -- Thay thế bằng khoảng thời gian bạn muốn
+    GROUP BY 
+      s.masp, s.tensp;
+  `;
+
+  // Thay thế bằng khoảng thời gian bạn muốn
+  const fromDate = "2024-01-01"; // Ngày bắt đầu
+  const toDate = "2024-12-31"; // Ngày kết thúc
+
+  db.query(query, [fromDate, toDate], (err, results) => {
+    if (err) {
+      console.error("Lỗi khi lấy dữ liệu bình quân mặt hàng:", err);
+      return res.status(500).send("Lỗi khi lấy dữ liệu bình quân mặt hàng");
+    }
+    res.json(results);
+  });
+});
 //ThongKe
 app.get("/sanphamcount", (req, res) => {
   const query = "SELECT COUNT(*) AS soluongsanpham FROM sanpham";
@@ -1163,47 +1269,65 @@ app.get("/tonkho/sanpham-con-trong-kho", (req, res) => {
 });
 // Tạo endpoint để lấy dữ liệu tồn kho
 app.get("/tonkho", (req, res) => {
-  const year = 2024; // Năm hiện tại hoặc năm bạn muốn tính toán
+  const year = req.query.year;
+  const period = req.query.period;
+  const product = req.query.product; // Lấy mã sản phẩm từ query
+
+  // Xác định tháng bắt đầu và tháng kết thúc dựa trên kỳ
+  let startMonth, endMonth;
+  if (period === "dauky") {
+    startMonth = 1;
+    endMonth = 6;
+  } else if (period === "giuaKy") {
+    startMonth = 7;
+    endMonth = 9;
+  } else if (period === "cuoiky") {
+    startMonth = 10;
+    endMonth = 12;
+  }
 
   const query = `
     SELECT 
       s.masp, 
       s.tensp, 
-      -- Tồn đầu kỳ: Tồn ban đầu cộng nhập trong 6 tháng đầu năm trừ xuất trong 6 tháng đầu năm
       GREATEST(0, (s.soluongton + 
-        COALESCE(SUM(CASE 
-            WHEN MONTH(pn.thoigian) <= 6 AND YEAR(pn.thoigian) = ? THEN ctpn.soluong 
-            ELSE 0 
-        END), 0) - 
-        COALESCE(SUM(CASE 
-            WHEN MONTH(px.thoigian) <= 6 AND YEAR(px.thoigian) = ? THEN ctpx.soluong 
-            ELSE 0 
-        END), 0)
+          COALESCE(SUM(CASE 
+              WHEN MONTH(pn.thoigian) < 1 AND YEAR(pn.thoigian) = ? THEN ctpn.soluong 
+              ELSE 0 
+          END), 0) - 
+          COALESCE(SUM(CASE 
+              WHEN MONTH(px.thoigian) < 1 AND YEAR(px.thoigian) = ? THEN ctpx.soluong 
+              ELSE 0 
+          END), 0)
       )) AS tondauky,
-      
-      -- Nhập trong kỳ: Tổng số lượng nhập trong toàn bộ năm 2024
+      GREATEST(0, (s.soluongton + 
+          COALESCE(SUM(CASE 
+              WHEN MONTH(pn.thoigian) BETWEEN 1 AND 6 AND YEAR(pn.thoigian) = ? THEN ctpn.soluong 
+              ELSE 0 
+          END), 0) - 
+          COALESCE(SUM(CASE 
+              WHEN MONTH(px.thoigian) BETWEEN 1 AND 6 AND YEAR(px.thoigian) = ? THEN ctpx.soluong 
+              ELSE 0 
+          END), 0)
+      )) AS tongiuaKy,
+      GREATEST(0, (s.soluongton + 
+          COALESCE(SUM(CASE 
+              WHEN MONTH(pn.thoigian) BETWEEN 1 AND 9 AND YEAR(pn.thoigian) = ? THEN ctpn.soluong 
+              ELSE 0 
+          END), 0) - 
+          COALESCE(SUM(CASE 
+              WHEN MONTH(px.thoigian) BETWEEN 1 AND 9 AND YEAR(px.thoigian) = ? THEN ctpx.soluong 
+              ELSE 0 
+          END), 0)
+      )) AS toncuoiky,
       COALESCE(SUM(CASE 
-          WHEN YEAR(pn.thoigian) = ? THEN ctpn.soluong 
+          WHEN MONTH(pn.thoigian) BETWEEN ? AND ? AND YEAR(pn.thoigian) = ? THEN ctpn.soluong 
           ELSE 0 
       END), 0) AS nhap_trong_ky,
-      
-      -- Xuất trong kỳ: Tổng số lượng xuất trong toàn bộ năm 2024
       COALESCE(SUM(CASE 
-          WHEN YEAR(px.thoigian) = ? THEN ctpx.soluong 
+          WHEN MONTH(px.thoigian) BETWEEN ? AND ? AND YEAR(px.thoigian) = ? THEN ctpx.soluong 
           ELSE 0 
-      END), 0) AS xuat_trong_ky,
-      
-      -- Tồn cuối kỳ: Tồn ban đầu cộng nhập trong 6 tháng cuối năm trừ xuất trong 6 tháng cuối năm
-      GREATEST(0, (s.soluongton + 
-        COALESCE(SUM(CASE 
-            WHEN MONTH(pn.thoigian) >= 6 AND YEAR(pn.thoigian) = ? THEN ctpn.soluong 
-            ELSE 0 
-        END), 0) - 
-        COALESCE(SUM(CASE 
-            WHEN MONTH(px.thoigian) >= 6 AND YEAR(px.thoigian) = ? THEN ctpx.soluong 
-            ELSE 0 
-        END), 0)
-      )) AS toncuoiky
+      END), 0) AS xuat_trong_ky
     FROM 
       sanpham s
     LEFT JOIN 
@@ -1217,19 +1341,40 @@ app.get("/tonkho", (req, res) => {
     LEFT JOIN 
       phieuxuat px ON ctpx.maphieuxuat = px.maphieuxuat
     WHERE 
-      s.trangthai = 1
+      s.trangthai =  1
+      AND (? IS NULL OR s.masp = ?)
     GROUP BY 
       s.masp, s.tensp, s.soluongton;
   `;
 
   // Sử dụng db.query với các tham số đã chuẩn bị
-  db.query(query, [year, year, year, year, year, year], (error, results) => {
-    if (error) {
-      console.error("Error executing query:", error);
-      return res.status(500).send("Server error");
+  db.query(
+    query,
+    [
+      year, // Tồn đầu kỳ
+      year,
+      year, // Tồn giữa kỳ
+      year,
+      year, // Tồn cuối kỳ
+      year,
+      startMonth,
+      endMonth,
+      year, // Nhập trong kỳ
+      startMonth,
+      endMonth,
+      year, // Xuất trong kỳ
+      product || null, // Tham số sản phẩm
+      product || null, // Tham số sản phẩm
+    ],
+    (error, results) => {
+      if (error) {
+        console.error("Error executing query:", error);
+        return res.status(500).send("Server error");
+      }
+      console.log(results);
+      res.json(results);
     }
-    res.json(results);
-  });
+  );
 });
 
 app.get("/thongke-8ngay", (req, res) => {
@@ -1298,6 +1443,13 @@ app.get("/doanhthu-nam", async (req, res) => {
 
 // Endpoint lấy dữ liệu vốn, doanh thu, và lợi nhuận cho từng tháng năm 2024
 app.get("/doanhthu-thang", (req, res) => {
+  const year = req.query.year; // Lấy năm từ query parameters
+
+  // Kiểm tra xem năm có hợp lệ không
+  if (!year || isNaN(year)) {
+    return res.status(400).json({ error: "Invalid year parameter" });
+  }
+
   const query = `
     SELECT 
       COALESCE(von.month, doanhthu.month) AS month,
@@ -1309,19 +1461,20 @@ app.get("/doanhthu-thang", (req, res) => {
               SUM(ctpn.soluong * ctpn.dongia) AS total_von
        FROM ctphieunhap AS ctpn
        JOIN phieunhap AS pn ON ctpn.maphieunhap = pn.maphieunhap
-       WHERE YEAR(pn.thoigian) = 2024
+       WHERE YEAR(pn.thoigian) = ?
        GROUP BY MONTH(pn.thoigian)) AS von
     RIGHT JOIN 
       (SELECT MONTH(px.thoigian) AS month, 
               SUM(ctpx.soluong * ctpx.dongia) AS total_doanhthu
        FROM ctphieuxuat AS ctpx
        JOIN phieuxuat AS px ON ctpx.maphieuxuat = px.maphieuxuat
-       WHERE YEAR(px.thoigian) = 2024
+       WHERE YEAR(px.thoigian) = ?
        GROUP BY MONTH(px.thoigian)) AS doanhthu
     ON von.month = doanhthu.month;
   `;
 
-  db.query(query, (err, results) => {
+  // Sử dụng db.query với tham số để tránh SQL injection
+  db.query(query, [year, year], (err, results) => {
     if (err) {
       console.error("Error executing query:", err);
       return res.status(500).json({ error: "Database query error" });
@@ -1334,6 +1487,8 @@ app.get("/doanhthu-thang", (req, res) => {
 
 // Endpoint lấy dữ liệu vốn, doanh thu, và lợi nhuận cho từng từng ngày trong tháng năm 2024
 app.get("/doanhthu-ngay", (req, res) => {
+  const { year, month } = req.query; // Nhận năm và tháng từ query
+
   const query = `
       SELECT 
           day,
@@ -1350,7 +1505,7 @@ app.get("/doanhthu-ngay", (req, res) => {
               phieunhap
               LEFT JOIN ctphieunhap ON phieunhap.maphieunhap = ctphieunhap.maphieunhap
           WHERE 
-              phieunhap.thoigian BETWEEN '2024-04-01' AND '2024-04-30'
+              YEAR(phieunhap.thoigian) = ? AND MONTH(phieunhap.thoigian) = ?
           
           UNION ALL
 
@@ -1363,13 +1518,14 @@ app.get("/doanhthu-ngay", (req, res) => {
               phieuxuat
               LEFT JOIN ctphieuxuat ON phieuxuat.maphieuxuat = ctphieuxuat.maphieuxuat
           WHERE 
-              phieuxuat.thoigian BETWEEN '2024-04-01' AND '2024-04-30'
+              YEAR(phieuxuat.thoigian) = ? AND MONTH(phieuxuat.thoigian) = ?
       ) AS stats
       GROUP BY day
       ORDER BY day;
   `;
 
-  db.query(query, (err, results) => {
+  // Cung cấp tham số cho tất cả các điều kiện
+  db.query(query, [year, month, year, month], (err, results) => {
     if (err) {
       console.error("Lỗi truy vấn:", err);
       return res
@@ -1948,6 +2104,47 @@ app.get("/truyvanPagePhieuXuat/:masp", async (req, res) => {
         LEFT JOIN dungluongrom dlrom ON psp.rom = dlrom.madlrom
         LEFT JOIN mausac ms ON psp.mausac = ms.mamau
         WHERE sp.masp = ? AND psp.trangthai = 1;
+    `;
+  try {
+    db.query(query, [masp], (error, results) => {
+      if (error) {
+        console.error(error);
+        return res
+          .status(500)
+          .json({ message: "Có lỗi xảy ra khi truy vấn dữ liệu." });
+      }
+      res.status(200).json({ success: true, data: results });
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Có lỗi xảy ra." });
+  }
+});
+app.get("/truyvanPagePhieuXuatKho/:masp", async (req, res) => {
+  const { masp } = req.params;
+  const query = `
+        SELECT 
+            sp.masp, 
+            sp.tensp, 
+            kk.tenkhuvuc AS khuvuckho, -- Lấy tên khu vực kho từ bảng khuvuckho
+            psp.maphienbansp,
+            psp.rom, 
+            dlrom.kichthuocrom AS rom_kichthuoc, 
+            psp.ram, 
+            dlram.kichthuocram AS ram_kichthuoc, 
+            psp.mausac, 
+            ms.tenmau, 
+            CONCAT(dlrom.kichthuocrom ,'-', dlram.kichthuocram ,'-', ms.tenmau) AS cauhinh, -- Format cấu hình
+            psp.giaxuat, 
+            psp.soluongton
+        FROM sanpham sp
+        LEFT JOIN phienbansanpham psp ON sp.masp = psp.masp
+        LEFT JOIN dungluongram dlram ON psp.ram = dlram.madlram
+        LEFT JOIN dungluongrom dlrom ON psp.rom = dlrom.madlrom
+        LEFT JOIN mausac ms ON psp.mausac = ms.mamau
+        LEFT JOIN khuvuckho kk ON sp.khuvuckho = kk.makhuvuc -- Thêm JOIN với bảng khuvuckho
+
+        WHERE sp.masp = "SP001" AND psp.trangthai = 1;
     `;
   try {
     db.query(query, [masp], (error, results) => {
@@ -2765,6 +2962,75 @@ app.delete("/xoaNhanVien/:manv", (req, res) => {
     }
   });
 });
+// app.post("/chuyenkho", async (req, res) => {
+//   const { khoCu, khoMoi, products } = req.body;
+
+//   try {
+//     for (const product of products) {
+//       const { masp, soluong } = product;
+
+//       // Giảm số lượng trong kho cũ
+//       await db.query(
+//         `UPDATE sanpham SET soluongton = soluongton - ? WHERE masp = ? `,
+//         [soluong, masp]
+//       );
+
+//       // Tạo bản sao sản phẩm trong kho mới
+//       const [existingProduct] = await db.query(
+//         `SELECT * FROM sanpham WHERE masp = ?`,
+//         [masp]
+//       );
+
+//       if (existingProduct.length > 0) {
+//         const newProduct = {
+//           masp: existingProduct[0].masp, // Giữ nguyên mã sản phẩm
+//           tensp: existingProduct[0].tensp,
+//           hinhanh: existingProduct[0].hinhanh,
+//           xuatxu: existingProduct[0].xuatxu,
+//           chipxuly: existingProduct[0].chipxuly,
+//           dungluongpin: existingProduct[0].dungluongpin,
+//           kichthuocman: existingProduct[0].kichthuocman,
+//           hedieuhanh: existingProduct[0].hedieuhanh,
+//           phienbanhdh: existingProduct[0].phienbanhdh,
+//           camerasau: existingProduct[0].camerasau,
+//           cameratruoc: existingProduct[0].cameratruoc,
+//           thoigianbaohanh: existingProduct[0].thoigianbaohanh,
+//           thuonghieu: existingProduct[0].thuonghieu,
+//           khuvuckho: khoMoi, // Cập nhật khu vực kho mới
+//           soluongton: soluong, // Số lượng mới
+//           trangthai: existingProduct[0].trangthai,
+//         };
+
+//         await db.query(
+//           `INSERT INTO sanpham (masp, tensp, hinhanh, xuatxu, chipxuly, dungluongpin, kichthuocman, hedieuhanh, phienbanhdh, camerasau, cameratruoc, thoigianbaohanh, thuonghieu, khuvuckho, soluongton, trangthai) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+//           [
+//             newProduct.masp,
+//             newProduct.tensp,
+//             newProduct.hinhanh,
+//             newProduct.xuatxu,
+//             newProduct.chipxuly,
+//             newProduct.dungluongpin,
+//             newProduct.kichthuocman,
+//             newProduct.hedieuhanh,
+//             newProduct.phienbanhdh,
+//             newProduct.camerasau,
+//             newProduct.cameratruoc,
+//             newProduct.thoigianbaohanh,
+//             newProduct.thuonghieu,
+//             newProduct.khuvuckho,
+//             newProduct.soluongton,
+//             newProduct.trangthai,
+//           ]
+//         );
+//       }
+//     }
+
+//     res.status(200).json({ success: true, message: "Chuyển kho thành công" });
+//   } catch (error) {
+//     console.error("Error during kho transfer:", error);
+//     res.status(500).json({ success: false, message: "Có lỗi xảy ra" });
+//   }
+// });
 // Start the server
 const PORT = 5000;
 app.listen(PORT, () => {
